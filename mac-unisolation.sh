@@ -1,74 +1,83 @@
 #!/bin/bash
 
-# Function to read IP address and port from file
-read_ip_and_port_from_file() {
-    local file_path="$1"
-    local content
-    content=$(<"$file_path")
-    
-    local ip_range
-    ip_range=$(echo "$content" | grep -oPm 1 '<address>\K(.*?)(?=</address>)')
-    
-    local port_range
-    port_range=$(echo "$content" | grep -oPm 1 '<port>\K(.*?)(?=</port>)')
-    
-    echo "$ip_range $port_range"
-}
+# Variables
+LOG_FILE="/Library/Ossec/logs/active-responses.log"
+PF_CONF_FILE="/etc/pf.conf"
+RULES_FILE="/etc/pf.anchors/custom_rules.pf"
+LAUNCHDAEMONS_FILE="/Library/LaunchDaemons/com.custom.pf.rules.plist"
 
-# Function to update configuration file with timestamp
-update_config_file_with_timestamp() {
+# Ensure the script is run as root
+if [ "$(id -u)" -ne 0 ]; then
+    echo "This script must be run as root."
+    exit 1
+fi
+
+# Function to remove the timestamp label from the configuration file
+remove_timestamp_from_config() {
     local file_path="$1"
-    local timestamp
-    timestamp=$(date +'%Y-%m-%dT%H:%M:%S')
     
-    sed -i -e "/<\/ossec_config>/i \ \n<labels>\n  <label key=\"unisolated.time\">$timestamp<\/label>\n<\/labels>\n" "$file_path"
+    # Remove the label containing the timestamp
+    sed -i '' '/<labels>/,/<\/labels>/d' "$file_path"
+    
+    echo "Timestamp label removed from file: $file_path"
 }
 
 # Function to disable pf firewall
 disable_pf() {
+    echo "Disabling Packet Filter firewall..."
     /sbin/pfctl -d
+    if [ $? -eq 0 ]; then
+        echo "Packet Filter firewall disabled."
+    else
+        echo "Failed to disable Packet Filter firewall."
+    fi
+}
+
+# Function to remove the custom PF rules and restore the original configuration
+remove_pf_rules() {
+    # Remove the custom rules from the PF configuration file
+    sed -i '' '/# Custom PF Rules/,/^$/d' "$PF_CONF_FILE"
+    echo "Custom PF rules removed from $PF_CONF_FILE."
+
+    # Reload the PF configuration
+    /sbin/pfctl -f "$PF_CONF_FILE"
+    echo "PF configuration reloaded."
 }
 
 # Function to enable pf firewall
 enable_pf() {
+    echo "Enabling Packet Filter firewall..."
     /sbin/pfctl -e
+    if [ $? -eq 0 ]; then
+        echo "Packet Filter firewall enabled."
+    else
+        echo "Failed to enable Packet Filter firewall."
+    fi
+}
+
+# Function to log messages
+log_message() {
+    local message="$1"
+    local timestamp=$(date +"%a %b %d %T %Z %Y")
+    local log_entry="$timestamp $message"
+    echo "$log_entry" >> "$LOG_FILE"
 }
 
 # Main function
 main() {
-    local ip port
-    read_ip_and_port_from_file "/Library/Ossec/etc/ossec.conf"
-    ip="$1"
-    port="$2"
+    # Remove the timestamp label from the configuration file
+    remove_timestamp_from_config "/Library/Ossec/etc/ossec.conf"
 
-    update_config_file_with_timestamp "/Library/Ossec/etc/ossec.conf"
-    
+    # Disable PF firewall
     disable_pf
-    echo "Packet filter disabled."
-    
-    # Construct rules content
-    local rules_content="block all\npass in inet proto tcp from $ip to any port $port\npass out inet proto tcp from any to $ip port $port"
-    
-    local rules_file="/tmp/pf.rules"
-    echo -e "$rules_content" > "$rules_file"
-    
-    # Read contents of pf.conf
-    local pf_conf_content
-    pf_conf_content=$(<"/etc/pf.conf")
-    
-    # Remove rules content from pf.conf content
-    pf_conf_content=$(echo "$pf_conf_content" | sed "/$rules_content/d")
-    
-    # Write the updated contents back to pf.conf
-    echo -e "$pf_conf_content" > "/etc/pf.conf"
-    
-    # Reload pf.conf
-    /sbin/pfctl -f /etc/pf.conf
-    
+
+    # Remove the custom PF rules
+    remove_pf_rules
+
+    # Enable PF firewall
     enable_pf
-    echo "Packet filter enabled."
-    
-    echo "Packet filter configured with rules based on the IP address $ip and port $port from the file /Library/Ossec/etc/ossec.conf."
+
+    log_message "active-response/bin/unisolation.sh: Endpoint Unisolated."
 }
 
 # Call the main function
