@@ -41,11 +41,8 @@ update_config_file_with_timestamp() {
     local file_path="$1"
     local timestamp="$2"
 
-    # Find the position to insert the label
-    local insertion_point=$(grep -b -m 1 "</ossec_config>" "$file_path" | cut -d ':' -f 1)
-
-    # Insert the label with the timestamp
-    sed -i "${insertion_point}i\\
+    # Insert the label with the timestamp at the end of ossec_config
+    sed -i "/<\/ossec_config>/i \
     <labels>\\
       <label key=\"unisolated.time\">${timestamp}</label>\\
     </labels>" "$file_path"
@@ -84,16 +81,6 @@ main() {
     # Update the configuration file with the timestamp
     update_config_file_with_timestamp "/var/ossec/etc/ossec.conf" "$current_time"
 
-    # Flush existing iptables rules to start fresh
-    iptables -F
-    iptables -X
-    iptables -Z
-
-    # Configure iptables for default policy
-    iptables -P INPUT ACCEPT
-    iptables -P OUTPUT ACCEPT
-    iptables -P FORWARD ACCEPT
-
     # Log message and print configure iptables message
     local configure_iptables_msg="active-response/bin/unisolation.sh: Endpoint unisolated."
     log_message "$configure_iptables_msg"
@@ -105,4 +92,3 @@ main() {
 
 # Execute the main function
 main "$@"
-
