@@ -2,6 +2,16 @@
 
 LOG_FILE="/var/ossec/logs/active-responses.log"
 SYSTEMD_SERVICE_FILE="/etc/systemd/system/iptables-restore.service"
+RULES_FILE="/etc/iptables/rules.v4"
+
+# Function to remove /etc/iptables/rules.v4 if present, otherwise create an empty file
+remove_or_create_rules_file() {
+    if [ -f "$RULES_FILE" ]; then
+        rm "$RULES_FILE"
+    else
+        touch "$RULES_FILE"
+    fi
+}
 
 # Function to read IP address and port from the file
 read_ip_and_port_from_file() {
@@ -60,6 +70,9 @@ remove_systemd_service() {
 
 # Main function
 main() {
+    # Remove or create /etc/iptables/rules.v4
+    remove_or_create_rules_file
+
     # Read IP address and port from the file
     read_ip_and_port_from_file "/var/ossec/etc/ossec.conf"
     local ip="$1"
@@ -92,3 +105,4 @@ main() {
 
 # Execute the main function
 main "$@"
+
