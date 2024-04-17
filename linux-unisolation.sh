@@ -1,3 +1,6 @@
+now fix the following unisolation script to saves the timstap to /var/ossec/etc/ossec.conf
+
+
 #!/bin/bash
 
 LOG_FILE="/var/ossec/logs/active-responses.log"
@@ -38,15 +41,31 @@ read_ip_and_port_from_file() {
 
 # Function to update configuration file with timestamp
 update_config_file_with_timestamp() {
-    local file_path="$1"
-    local timestamp="$2"
+    local file_path=$1
+    local timestamp=$2
 
-    # Insert the label with the timestamp at the end of ossec_config
-    sed -i "/<\/ossec_config>/i \
+    # Find the position to insert the label
+    local insertion_point=$(grep -b -m 1 "</ossec_config>" "$file_path" | cut -d ':' -f 1)
+
+    if [ -z "$insertion_point" ]; then
+        echo "Error: Failed to find insertion point in $file_path"
+        return 1
+    fi
+
+    # Insert the label with the timestamp
+    sed -i "${insertion_point}i\\
     <labels>\\
       <label key=\"unisolated.time\">${timestamp}</label>\\
     </labels>" "$file_path"
+
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to insert timestamp label into $file_path"
+        return 1
+    fi
+
+    return 0
 }
+
 
 # Function to log messages
 log_message() {
@@ -80,6 +99,16 @@ main() {
 
     # Update the configuration file with the timestamp
     update_config_file_with_timestamp "/var/ossec/etc/ossec.conf" "$current_time"
+
+    # Flush existing iptables rules to start fresh
+    iptables -F
+    iptables -X
+    iptables -Z
+
+    # Configure iptables for default policy
+    iptables -P INPUT ACCEPT
+    iptables -P OUTPUT ACCEPT
+    iptables -P FORWARD ACCEPT
 
     # Log message and print configure iptables message
     local configure_iptables_msg="active-response/bin/unisolation.sh: Endpoint unisolated."
