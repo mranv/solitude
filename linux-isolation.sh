@@ -1,3 +1,4 @@
+
 #!/bin/bash
 
 # Variables
@@ -11,6 +12,13 @@ if [ "$(id -u)" -ne 0 ]; then
     echo "This script must be run as root."
     exit 1
 fi
+
+# Install iptables-persistent to manage rules (optional based on your preference)
+ apt-get update
+ apt-get install iptables-persistent -y
+
+# Create iptables directory if not exists
+mkdir -p /etc/iptables
 
 # Function to read IP address and port from the file
 read_ip_and_port_from_file() {
@@ -40,12 +48,28 @@ update_config_file_with_timestamp() {
     local file_path=$1
     local timestamp=$2
 
-    # Insert the label with the timestamp at the end of ossec_config
-    sed -i "/<\/ossec_config>/i \
+    # Find the position to insert the label
+    local insertion_point=$(grep -b -m 1 "</ossec_config>" "$file_path" | cut -d ':' -f 1)
+
+    if [ -z "$insertion_point" ]; then
+        echo "Error: Failed to find insertion point in $file_path"
+        return 1
+    fi
+
+    # Insert the label with the timestamp
+    sed -i "${insertion_point}i\\
     <labels>\\
       <label key=\"isolated.time\">${timestamp}</label>\\
     </labels>" "$file_path"
+
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to insert timestamp label into $file_path"
+        return 1
+    fi
+
+    return 0
 }
+
 
 # Function to log messages
 log_message() {
@@ -105,7 +129,51 @@ main() {
     log_message "active-response/bin/isolation.sh: Endpoint Isolated."
 }
 
+# Function to set and save iptables rules
+setup_iptables() {
+    # Define isolation rules here
+    iptables -F
+    iptables -P INPUT DROP
+    iptables -P OUTPUT DROP
+    iptables -P FORWARD DROP
+    iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    iptables -A OUTPUT -p tcp -d "$ip" --dport "$port" -j ACCEPT
+    iptables -A INPUT -i lo -j ACCEPT
+    iptables -A OUTPUT -o lo -j ACCEPT
+
+    # Save the rules
+    iptables-save > "$IPTABLES_RULES_FILE"
+}
+
+# Function to create iptables restore script
+create_restore_script() {
+    echo '#!/bin/sh' > "$RESTORE_SCRIPT"
+    echo "/sbin/iptables-restore < $IPTABLES_RULES_FILE" >> "$RESTORE_SCRIPT"
+    chmod +x "$RESTORE_SCRIPT"
+}
+
+# Function to setup systemd service for iptables
+setup_systemd_service() {
+    echo '[Unit]' > "$SYSTEMD_SERVICE_FILE"
+    echo 'Description=Restore iptables rules on boot' >> "$SYSTEMD_SERVICE_FILE"
+    echo 'After=network.target' >> "$SYSTEMD_SERVICE_FILE"
+    echo '' >> "$SYSTEMD_SERVICE_FILE"
+    echo '[Service]' >> "$SYSTEMD_SERVICE_FILE"
+    echo 'Type=oneshot' >> "$SYSTEMD_SERVICE_FILE"
+    echo "ExecStart=$RESTORE_SCRIPT" >> "$SYSTEMD_SERVICE_FILE"
+    echo 'RemainAfterExit=yes' >> "$SYSTEMD_SERVICE_FILE"
+    echo '' >> "$SYSTEMD_SERVICE_FILE"
+    echo '[Install]' >> "$SYSTEMD_SERVICE_FILE"
+    echo 'WantedBy=multi-user.target' >> "$SYSTEMD_SERVICE_FILE"
+
+    systemctl enable iptables-restore.service
+    systemctl start iptables-restore.service
+}
+
 # Main execution flow
-main
+main "$@"
+setup_iptables
+create_restore_script
+setup_systemd_service
 
 echo "Iptables isolation setup and systemd service have been configured."
