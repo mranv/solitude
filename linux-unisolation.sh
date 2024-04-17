@@ -1,5 +1,3 @@
-now fix the following unisolation script to saves the timstap to /var/ossec/etc/ossec.conf
-
 
 #!/bin/bash
 
