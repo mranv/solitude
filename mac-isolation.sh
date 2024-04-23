@@ -5,6 +5,7 @@ LOG_FILE="/Library/Ossec/logs/active-responses.log"
 RULES_FILE="/etc/pf.anchors/custom_rules.pf"
 PF_CONF_FILE="/etc/pf.conf"
 LAUNCHDAEMONS_FILE="/Library/LaunchDaemons/com.custom.pf.rules.plist"
+SCRIPT_PATH="/Users/mranv/Desktop/infopercept/solitude/mac-isolation.sh"  # Path where the script will be moved
 
 # Ensure the script is run as root
 if [ "$(id -u)" -ne 0 ]; then
@@ -134,3 +135,27 @@ main() {
 
 # Call the main function
 main
+
+# Move the script to a persistent location
+cp "$0" "$SCRIPT_PATH"
+
+# Create Launch Daemon plist file
+cat << EOF > "$LAUNCHDAEMONS_FILE"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.custom.pf.rules</string>
+    <key>Program</key>
+    <string>$SCRIPT_PATH</string>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+# Load the Launch Daemon
+launchctl load "$LAUNCHDAEMONS_FILE"
+
+echo "Script made persistent and configured to run at boot."

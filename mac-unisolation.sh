@@ -5,6 +5,7 @@ LOG_FILE="/Library/Ossec/logs/active-responses.log"
 PF_CONF_FILE="/etc/pf.conf"
 RULES_FILE="/etc/pf.anchors/custom_rules.pf"
 LAUNCHDAEMONS_FILE="/Library/LaunchDaemons/com.custom.pf.rules.plist"
+SCRIPT_PATH="/Users/mranv/Desktop/infopercept/solitude/mac-unisolation.sh"  # Path where the script was moved
 
 # Ensure the script is run as root
 if [ "$(id -u)" -ne 0 ]; then
@@ -82,3 +83,14 @@ main() {
 
 # Call the main function
 main
+
+# Unload the Launch Daemon
+launchctl unload "$LAUNCHDAEMONS_FILE"
+
+# Remove the Launch Daemon plist file
+rm "$LAUNCHDAEMONS_FILE"
+
+# Remove the script from the persistent location
+rm "$SCRIPT_PATH"
+
+echo "Unisolation script executed successfully."
