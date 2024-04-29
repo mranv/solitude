@@ -24,5 +24,5 @@ sudo launchctl unload "$LAUNCHDAEMONS_FILE"
 sudo rm "$LAUNCHDAEMONS_FILE"
 
 # Log unisolation event
-log_message "active-response/bin/unisolation.sh: Endpoint unisolated."
+log_message "active-response/bin/unisolation.sh: Endpoint Unisolated."
 
