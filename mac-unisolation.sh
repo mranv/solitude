@@ -26,4 +26,3 @@ sudo rm "$LAUNCHDAEMONS_FILE"
 # Log unisolation event
 log_message "active-response/bin/unisolation.sh: Endpoint unisolated."
 
-echo "Endpoint unisolated."
