@@ -18,7 +18,7 @@ update_config_file_with_timestamp() {
     local timestamp="$2"
     
     # Define the XML content to be inserted
-    local xml_content="\
+    local xml_content="\\n\
     <!-- Isolation timestamp -->\n\
     <labels>\n\
       <label key=\"isolated.time\">$timestamp</label>\n\
