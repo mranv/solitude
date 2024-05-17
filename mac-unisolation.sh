@@ -12,7 +12,13 @@ update_config_file_with_timestamp() {
     local file_path="$1"
     local timestamp="$2"
     
-    # Define the XML content to be inserted
+    # Backup the original file before modifications
+    cp "$file_path" "$file_path.bak"
+
+    # Remove only the <labels> sections that have the unisolated.time key using awk
+    awk '/<!-- Unisolation timestamp -->/,/<\/labels>/ { if (/unisolated\.time/) nextblock=1; next } !nextblock {print} {nextblock=0}' "$file_path.bak" > "$file_path"
+
+    # Define the new XML content to be inserted
     local xml_content="\
     \n\
     <!-- Unisolation timestamp -->\n\
@@ -23,11 +29,12 @@ update_config_file_with_timestamp() {
     # Use awk to find the line number of the closing ossec_config tag
     local closing_tag_line=$(awk '/<\/ossec_config>/ {print NR}' "$file_path")
     
-    # Insert the XML content before the closing ossec_config tag
+    # Insert the new XML content before the closing ossec_config tag
     awk -v content="$xml_content" -v line="$closing_tag_line" 'NR==line-1 {print content} {print}' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
     
     echo "File updated with timestamp at path: $file_path"
 }
+
 
 
 # Function to log messages
