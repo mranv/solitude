@@ -6,7 +6,6 @@ LAUNCHDAEMONS_FILE="/Library/LaunchDaemons/com.user.pfisolation.plist"
 LOG_FILE="/Library/Ossec/logs/active-responses.log"
 OSSEC_CONF="/Library/Ossec/etc/ossec.conf"
 
-
 # Function to update configuration file with timestamp
 update_config_file_with_timestamp() {
     local file_path="$1"
@@ -15,28 +14,26 @@ update_config_file_with_timestamp() {
     # Backup the original file before modifications
     cp "$file_path" "$file_path.bak"
 
-    # Remove only the <labels> sections that have the unisolated.time key using awk
-    awk '/<!-- Unisolation timestamp -->/,/<\/labels>/ { if (/unisolation\_time/) nextblock=1; next } !nextblock {print} {nextblock=0}' "$file_path.bak" > "$file_path"
+    # Remove only the <labels> sections that have the unisolation_time key using awk
+    awk '
+    /<!-- Unisolation timestamp -->/ {inblock=1; next}
+    /<\/labels>/ {if (inblock) {inblock=0; next}}
+    !inblock {print}
+    ' "$file_path.bak" > "$file_path"
 
     # Define the new XML content to be inserted
     local xml_content="\
-    \n\
-    <!-- Unisolation timestamp -->\n\
-    <labels>
-    <label key=\"unisolation_state\">unisolated</label>
-    <label key=\"unisolation_time\">$timestamp</label>
-    </labels>"
+<!-- Unisolation timestamp -->
+<labels>
+<label key=\"unisolation_state\">unisolated</label>
+<label key=\"unisolation_time\">$timestamp</label>
+</labels>"
 
-    # Use awk to find the line number of the closing ossec_config tag
-    local closing_tag_line=$(awk '/<\/ossec_config>/ {print NR}' "$file_path")
-    
     # Insert the new XML content before the closing ossec_config tag
-    awk -v content="$xml_content" -v line="$closing_tag_line" 'NR==line-1 {print content} {print}' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
+    awk -v content="$xml_content" '/<\/ossec_config>/ {print content}1' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
     
     echo "File updated with timestamp at path: $file_path"
 }
-
-
 
 # Function to log messages
 log_message() {
@@ -59,7 +56,7 @@ sudo rm "$LAUNCHDAEMONS_FILE"
 # Log unisolation event
 log_message "active-response/bin/unisolation.sh: Endpoint Unisolated."
 
-
-    update_config_file_with_timestamp "$OSSEC_CONF" "$(date +"%Y-%m-%d %H:%M:%S")"
+# Update OSSEC configuration file with current timestamp
+update_config_file_with_timestamp "$OSSEC_CONF" "$(date +"%Y-%m-%d %H:%M:%S")"
 
 /Library/Ossec/bin/wazuh-control restart
