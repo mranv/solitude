@@ -39,38 +39,12 @@ update_config_file_with_timestamp() {
     echo "File updated with timestamp at path: $file_path"
 }
 
-
-
-# Function to read IP address and port from file
-read_ip_and_port_from_file() {
-    local file_path="$1"
-    local ip
-    local port
-
-    # Read IP address and port from the file
-    while IFS= read -r line; do
-        if [[ $line =~ "<address>" ]]; then
-            ip=$(echo "$line" | sed -e 's/.*<address>\(.*\)<\/address>.*/\1/' | tr -d '[:space:]')
-        elif [[ $line =~ "<port>" ]]; then
-            port=$(echo "$line" | sed -e 's/.*<port>\(.*\)<\/port>.*/\1/' | tr -d '[:space:]')
-        elif [[ $line =~ "</server>" ]]; then
-            # If both address and port are found, break
-            if [[ -n $ip && -n $port ]]; then
-                break
-            fi
-        fi
-    done < "$file_path"
-
-    echo "$ip $port"
-}
-
 # Function to apply PF rules and make them persistent
 apply_and_persist_pf_rules() {
     local ip="$1"
-    local port="$2"
     
-    # Define PF rules to allow connections only for the specified IP address and port
-    rules_content="block all\npass in inet proto tcp from any to $ip port $port\npass out inet proto tcp from $ip port $port to any"
+    # Define PF rules to allow connections only for the specified IP address and ports 1514 and 1515
+    rules_content="block all\npass in inet proto tcp from any to $ip port 1514\npass out inet proto tcp from $ip port 1514 to any\npass in inet proto tcp from any to $ip port 1515\npass out inet proto tcp from $ip port 1515 to any"
     
     # Create the pf rules file for isolation
     echo -e "$rules_content" | tee "$ISOLATED_PF_CONF" > /dev/null
@@ -92,14 +66,12 @@ log_message() {
 
 # Main function
 main() {
-    # Read IP address and port from the file
-    local ip port
-    ip_port=$(read_ip_and_port_from_file "$OSSEC_CONF")
-    ip=$(echo "$ip_port" | cut -d' ' -f1)
-    port=$(echo "$ip_port" | cut -d' ' -f2)
+    # Read IP address from the file
+    local ip
+    ip=$(awk '/^<address>/{print gensub(/<address>(.+)<\/address>/,"\\1","g",$0)}' "$OSSEC_CONF")
 
     # Apply PF rules and make them persistent
-    apply_and_persist_pf_rules "$ip" "$port"
+    apply_and_persist_pf_rules "$ip"
 
     # Update ossec.conf with current timestamp
     update_config_file_with_timestamp "$OSSEC_CONF" "$(date +"%Y-%m-%d %H:%M:%S")"
