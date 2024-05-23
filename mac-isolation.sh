@@ -120,3 +120,5 @@ EOF
 
 # Load the Launch Agent
 launchctl load "$LAUNCHDAEMONS_FILE"
+
+/Library/Ossec/bin/wazuh-control restart
