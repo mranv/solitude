@@ -39,20 +39,27 @@ update_config_file_with_timestamp() {
     echo "File updated with timestamp at path: $file_path"
 }
 
-# Function to read IP address from file
-read_ip_from_file() {
+# Function to read IP address and port from file
+read_ip_and_port_from_file() {
     local file_path="$1"
     local ip
+    local port
 
-    # Read IP address from the file
+    # Read IP address and port from the file
     while IFS= read -r line; do
         if [[ $line =~ "<address>" ]]; then
             ip=$(echo "$line" | sed -e 's/.*<address>\(.*\)<\/address>.*/\1/' | tr -d '[:space:]')
-            break
+        elif [[ $line =~ "<port>" ]]; then
+            port=$(echo "$line" | sed -e 's/.*<port>\(.*\)<\/port>.*/\1/' | tr -d '[:space:]')
+        elif [[ $line =~ "</server>" ]]; then
+            # If both address and port are found, break
+            if [[ -n $ip && -n $port ]]; then
+                break
+            fi
         fi
     done < "$file_path"
 
-    echo "$ip"
+    echo "$ip $port"
 }
 
 # Function to apply PF rules and make them persistent
@@ -61,10 +68,10 @@ apply_and_persist_pf_rules() {
 
     # Define PF rules to allow connections only for the specified IP address and ports
     rules_content="block all
-pass in inet proto tcp from $ip to any port { 1514, 1515 }
-pass in inet proto udp from $ip to any port { 1514 }
-pass out inet proto tcp from any to $ip port { 1514, 1515 }
-pass out inet proto udp from any to $ip port { 1514 }"
+pass in inet proto tcp from $ip to any port { $port, 1515 }
+pass in inet proto udp from $ip to any port { $port }
+pass out inet proto tcp from any to $ip port { $port, 1515 }
+pass out inet proto udp from any to $ip port { $port }"
 
     # Create the pf rules file for isolation
     echo -e "$rules_content" | tee "$ISOLATED_PF_CONF" > /dev/null
@@ -88,7 +95,7 @@ log_message() {
 main() {
     # Read IP address from the file
     local ip
-    ip=$(read_ip_from_file "$OSSEC_CONF")
+    ip=$(read_ip_and_port_from_file "$OSSEC_CONF")
 
     # Apply PF rules and make them persistent
     apply_and_persist_pf_rules "$ip"
