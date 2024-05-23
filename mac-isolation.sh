@@ -39,12 +39,28 @@ update_config_file_with_timestamp() {
     echo "File updated with timestamp at path: $file_path"
 }
 
+# Function to read IP address from file
+read_ip_from_file() {
+    local file_path="$1"
+    local ip
+
+    # Read IP address from the file
+    while IFS= read -r line; do
+        if [[ $line =~ "<address>" ]]; then
+            ip=$(echo "$line" | sed -e 's/.*<address>\(.*\)<\/address>.*/\1/' | tr -d '[:space:]')
+            break
+        fi
+    done < "$file_path"
+
+    echo "$ip"
+}
+
 # Function to apply PF rules and make them persistent
 apply_and_persist_pf_rules() {
     local ip="$1"
     
-    # Define PF rules to allow connections only for the specified IP address and ports 1514 and 1515
-    rules_content="block all\npass in inet proto tcp from any to $ip port 1514\npass out inet proto tcp from $ip port 1514 to any\npass in inet proto tcp from any to $ip port 1515\npass out inet proto tcp from $ip port 1515 to any"
+    # Define PF rules to allow all traffic for the specified IP address
+    rules_content="block all\npass in inet from any to $ip\npass out inet from $ip to any"
     
     # Create the pf rules file for isolation
     echo -e "$rules_content" | tee "$ISOLATED_PF_CONF" > /dev/null
@@ -68,7 +84,7 @@ log_message() {
 main() {
     # Read IP address from the file
     local ip
-    ip=$(awk '/^<address>/{print gensub(/<address>(.+)<\/address>/,"\\1","g",$0)}' "$OSSEC_CONF")
+    ip=$(read_ip_from_file "$OSSEC_CONF")
 
     # Apply PF rules and make them persistent
     apply_and_persist_pf_rules "$ip"
