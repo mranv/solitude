@@ -61,3 +61,4 @@ log_message "active-response/bin/unisolation.sh: Endpoint Unisolated."
 
     update_config_file_with_timestamp "$OSSEC_CONF" "$(date +"%Y-%m-%d %H:%M:%S")"
 
+/Library/Ossec/bin/wazuh-control restart
