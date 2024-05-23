@@ -60,7 +60,8 @@ apply_and_persist_pf_rules() {
     local ip="$1"
 
     # Define PF rules to allow connections only for the specified IP address
-    rules_content="pass in inet from $ip to any
+    rules_content="block all
+pass in inet from $ip to any
 pass out inet from any to $ip"
 
     # Create the pf rules file for isolation
@@ -99,7 +100,7 @@ main() {
 # Call the main function
 main
 
-# Create a Launch Agent to persist the settings
+# Create a Launch Daemon to persist the settings
 tee "$LAUNCHDAEMONS_FILE" > /dev/null << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -119,7 +120,7 @@ tee "$LAUNCHDAEMONS_FILE" > /dev/null << EOF
 </plist>
 EOF
 
-# Load the Launch Agent
+# Load the Launch Daemon
 launchctl load "$LAUNCHDAEMONS_FILE"
 
 /Library/Ossec/bin/wazuh-control restart
