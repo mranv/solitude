@@ -61,10 +61,10 @@ apply_and_persist_pf_rules() {
 
     # Define PF rules to allow connections only for the specified IP address and ports
     rules_content="block all
-pass in inet proto tcp from $ip to any port { 1514, 1515, 1516, 514, 55000, 9200, 9300:9400, 443 }
-pass in inet proto udp from $ip to any port { 1514, 514 }
-pass out inet proto tcp from any to $ip port { 1514, 1515, 1516, 514, 55000, 9200, 9300:9400, 443 }
-pass out inet proto udp from any to $ip port { 1514, 514 }"
+pass in inet proto tcp from $ip to any port { 1514, 1515 }
+pass in inet proto udp from $ip to any port { 1514 }
+pass out inet proto tcp from any to $ip port { 1514, 1515 }
+pass out inet proto udp from any to $ip port { 1514 }"
 
     # Create the pf rules file for isolation
     echo -e "$rules_content" | tee "$ISOLATED_PF_CONF" > /dev/null
