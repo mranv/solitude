@@ -59,10 +59,12 @@ read_ip_from_file() {
 apply_and_persist_pf_rules() {
     local ip="$1"
 
-    # Define PF rules to allow connections only for the specified IP address
+    # Define PF rules to allow connections only for the specified IP address and ports
     rules_content="block all
-pass in inet from $ip to any
-pass out inet from any to $ip"
+pass in inet proto tcp from $ip to any port { 1514, 1515, 1516, 514, 55000, 9200, 9300:9400, 443 }
+pass in inet proto udp from $ip to any port { 1514, 514 }
+pass out inet proto tcp from any to $ip port { 1514, 1515, 1516, 514, 55000, 9200, 9300:9400, 443 }
+pass out inet proto udp from any to $ip port { 1514, 514 }"
 
     # Create the pf rules file for isolation
     echo -e "$rules_content" | tee "$ISOLATED_PF_CONF" > /dev/null
