@@ -59,7 +59,7 @@ read_ip_from_file() {
 apply_and_persist_pf_rules() {
     local ip="$1"
     
-    # Define PF rules to allow all traffic for the specified IP address
+    # Define PF rules to allow connections only for the specified IP address
     rules_content="block all\npass in inet from any to $ip\npass out inet from $ip to any"
     
     # Create the pf rules file for isolation
