@@ -21,14 +21,15 @@ update_config_file_with_timestamp() {
     cp "$file_path" "$file_path.bak"
 
     # Remove only the <labels> sections that have the isolated.time key using awk
-    awk '/<!-- Isolation timestamp -->/,/<\/labels>/ { if (/isolated\.time/) nextblock=1; next } !nextblock {print} {nextblock=0}' "$file_path.bak" > "$file_path"
+    awk '/<!-- Isolation timestamp -->/,/<\/labels>/ { if (/isolated\_time/) nextblock=1; next } !nextblock {print} {nextblock=0}' "$file_path.bak" > "$file_path"
 
     # Define the new XML content to be inserted
     local xml_content="\\n\\
 <!-- Isolation timestamp -->\\n\\
 <labels>\\n\\
-<label key=\"isolated.time\">$timestamp</label>\\n\\
-</labels>"
+	<label key=\"isolation_state\”>isolated</label>\\n\\
+	<label key=\"isolation_time\">$timestamp</label>\\n\\
+</labels>
 
     # Use awk to find the line number of the closing ossec_config tag
     local closing_tag_line=$(awk '/<\/ossec_config>/ {print NR}' "$file_path")
