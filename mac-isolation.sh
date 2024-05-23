@@ -16,7 +16,7 @@ fi
 update_config_file_with_timestamp() {
     local file_path="$1"
     local timestamp="$2"
-    
+
     # Backup the original file before modifications
     cp "$file_path" "$file_path.bak"
 
@@ -24,18 +24,18 @@ update_config_file_with_timestamp() {
     awk '/<!-- Isolation timestamp -->/,/<\/labels>/ { if (/isolated\.time/) nextblock=1; next } !nextblock {print} {nextblock=0}' "$file_path.bak" > "$file_path"
 
     # Define the new XML content to be inserted
-    local xml_content="\\n\
-    <!-- Isolation timestamp -->\n\
-    <labels>\n\
-      <label key=\"isolated.time\">$timestamp</label>\n\
-    </labels>"
+    local xml_content="\\n\\
+<!-- Isolation timestamp -->\\n\\
+<labels>\\n\\
+<label key=\"isolated.time\">$timestamp</label>\\n\\
+</labels>"
 
     # Use awk to find the line number of the closing ossec_config tag
     local closing_tag_line=$(awk '/<\/ossec_config>/ {print NR}' "$file_path")
-    
+
     # Insert the new XML content before the closing ossec_config tag
     awk -v content="$xml_content" -v line="$closing_tag_line" 'NR==line-1 {print content} {print}' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
-    
+
     echo "File updated with timestamp at path: $file_path"
 }
 
@@ -58,16 +58,17 @@ read_ip_from_file() {
 # Function to apply PF rules and make them persistent
 apply_and_persist_pf_rules() {
     local ip="$1"
-    
+
     # Define PF rules to allow connections only for the specified IP address
-    rules_content="block all\npass in inet from any to $ip\npass out inet from $ip to any"
-    
+    rules_content="pass in inet from $ip to any
+pass out inet from any to $ip"
+
     # Create the pf rules file for isolation
     echo -e "$rules_content" | tee "$ISOLATED_PF_CONF" > /dev/null
-    
+
     # Load the isolation rules
     pfctl -f "$ISOLATED_PF_CONF"
-    
+
     # Enable PF
     pfctl -e
 }
@@ -104,16 +105,16 @@ tee "$LAUNCHDAEMONS_FILE" > /dev/null << EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key>
-  <string>com.user.pfisolation</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/sh</string>
-    <string>-c</string>
-    <string>pfctl -f $ISOLATED_PF_CONF; pfctl -e</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
+    <key>Label</key>
+    <string>com.user.pfisolation</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>pfctl -f $ISOLATED_PF_CONF; pfctl -e</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
 </dict>
 </plist>
 EOF
