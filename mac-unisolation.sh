@@ -6,9 +6,9 @@ LAUNCHDAEMONS_FILE="/Library/LaunchDaemons/com.user.pfisolation.plist"
 LOG_FILE="/Library/Ossec/logs/active-responses.log"
 OSSEC_CONF="/Library/Ossec/etc/ossec.conf"
 
-# Check if the OSSEC configuration file exists
-if [ ! -f "$OSSEC_CONF" ]; then
-    echo "Error: Configuration file not found at $OSSEC_CONF"
+# Ensure the script is run as root
+if [ "$(id -u)" -ne 0 ]; then
+    echo "This script must be run as root."
     exit 1
 fi
 
@@ -29,7 +29,7 @@ update_label() {
         if (!labels_printed) {
             print "  <!-- Isolation timestamp -->";
             print "  <labels>";
-            print "    <label key=\"isolation_status\">" label_value "</label>";
+            print "    <label key=\"isolation_state\">" label_value "</label>";
             # print "    <label key=\"isolation_time\">" timestamp "</label>";
             print "  </labels>";
             labels_printed = 1;
@@ -49,14 +49,14 @@ update_label() {
         }
         if (/<\/labels>/) {
             if (!labels_printed) {
-                print "    <label key=\"isolation_status\">" label_value "</label>";
+                print "    <label key=\"isolation_state\">" label_value "</label>";
                 # print "    <label key=\"isolation_time\">" timestamp "</label>";
                 labels_printed = 1;
             }
             print;
             next;
         }
-        if ($0 ~ /<label key="isolation_status">|<label key="isolation_time">/) {
+        if ($0 ~ /<label key="isolation_state">|<label key="isolation_time">/) {
             next; # Skip existing isolation labels
         }
         print; # Print all other labels unconditionally
@@ -67,10 +67,6 @@ update_label() {
 
     echo "File updated with $action status at path: $file_path"
 }
-
-# Update ossec.conf with the current action
-update_label "$OSSEC_CONF" "unisolate"
-
 
 # Function to log messages
 log_message() {
