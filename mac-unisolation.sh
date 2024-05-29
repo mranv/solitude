@@ -6,36 +6,70 @@ LAUNCHDAEMONS_FILE="/Library/LaunchDaemons/com.user.pfisolation.plist"
 LOG_FILE="/Library/Ossec/logs/active-responses.log"
 OSSEC_CONF="/Library/Ossec/etc/ossec.conf"
 
+# Check if the OSSEC configuration file exists
+if [ ! -f "$OSSEC_CONF" ]; then
+    echo "Error: Configuration file not found at $OSSEC_CONF"
+    exit 1
+fi
 
-# Function to update configuration file with timestamp
-update_config_file_with_timestamp() {
+# Function to update label based on isolation or unisolation
+update_label() {
     local file_path="$1"
-    local timestamp="$2"
-    
+    local action="$2"  # "isolate" or "unisolate"
+    local label_value=$( [ "$action" = "isolate" ] && echo "isolated" || echo "normal" )
+    # local timestamp="$(date +"%Y-%m-%d %H:%M:%S")"
+
     # Backup the original file before modifications
     cp "$file_path" "$file_path.bak"
 
-    # Remove only the <labels> sections that have the unisolated.time key using awk
-    awk '/<!-- Unisolation timestamp -->/,/<\/labels>/ { if (/unisolation\_time/) nextblock=1; next } !nextblock {print} {nextblock=0}' "$file_path.bak" > "$file_path"
+    # Process the file to correctly update or insert the isolation labels before </ossec_config>
+    awk -v label_value="$label_value" -v timestamp="$timestamp" '
+    BEGIN { printing = 1; labels_printed = 0; }
+    /<\/ossec_config>/ {
+        if (!labels_printed) {
+            print "  <!-- Isolation timestamp -->";
+            print "  <labels>";
+            print "    <label key=\"isolation_status\">" label_value "</label>";
+            # print "    <label key=\"isolation_time\">" timestamp "</label>";
+            print "  </labels>";
+            labels_printed = 1;
+        }
+        print "</ossec_config>";
+        printing = 0;
+        next;
+    }
+    /<!-- Isolation timestamp -->/,/<\/labels>/ {
+        if (/<!-- Isolation timestamp -->/) {
+            print;  # Print the comment marking the start of the isolation info
+            next;
+        }
+        if (/<labels>/) {
+            print;
+            next;
+        }
+        if (/<\/labels>/) {
+            if (!labels_printed) {
+                print "    <label key=\"isolation_status\">" label_value "</label>";
+                # print "    <label key=\"isolation_time\">" timestamp "</label>";
+                labels_printed = 1;
+            }
+            print;
+            next;
+        }
+        if ($0 ~ /<label key="isolation_status">|<label key="isolation_time">/) {
+            next; # Skip existing isolation labels
+        }
+        print; # Print all other labels unconditionally
+        next;
+    }
+    printing { print }
+    ' "$file_path.bak" > "$file_path"
 
-    # Define the new XML content to be inserted
-    local xml_content="\
-    \n\
-    <!-- Unisolation timestamp -->\n\
-    <labels>
-    <label key=\"unisolation_state\">unisolated</label>
-    <label key=\"unisolation_time\">$timestamp</label>
-    </labels>"
-
-    # Use awk to find the line number of the closing ossec_config tag
-    local closing_tag_line=$(awk '/<\/ossec_config>/ {print NR}' "$file_path")
-    
-    # Insert the new XML content before the closing ossec_config tag
-    awk -v content="$xml_content" -v line="$closing_tag_line" 'NR==line-1 {print content} {print}' "$file_path" > "$file_path.tmp" && mv "$file_path.tmp" "$file_path"
-    
-    echo "File updated with timestamp at path: $file_path"
+    echo "File updated with $action status at path: $file_path"
 }
 
+# Update ossec.conf with the current action
+update_label "$OSSEC_CONF" "unisolate"
 
 
 # Function to log messages
@@ -59,7 +93,8 @@ sudo rm "$LAUNCHDAEMONS_FILE"
 # Log unisolation event
 log_message "active-response/bin/unisolation.sh: Endpoint Unisolated."
 
+# Update ossec.conf with the current action
+update_label "$OSSEC_CONF" "unisolate"
 
-    update_config_file_with_timestamp "$OSSEC_CONF" "$(date +"%Y-%m-%d %H:%M:%S")"
-
+# Restarting Wazuh Agent
 /Library/Ossec/bin/wazuh-control restart
