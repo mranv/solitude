@@ -29,5 +29,3 @@ Solitude is provided as-is, without any warranty or guarantee of performance. Us
 
 **Stay Connected:**
 Follow us on GitHub to stay updated with the latest developments and releases. Your support and involvement are greatly appreciated!
-
-<iframe src="https://www.linkedin.com/embed/feed/update/urn:li:share:7202304534709211137" height="1788" width="504" frameborder="0" allowfullscreen="" title="Embedded post"></iframe>
