@@ -1,16 +1,22 @@
-
-**Solitude**
+<h1 align="center">
+<br>
+<img src=assets/web-shell-circle height="400" border="2px solid #555">
+<br>
+<strong>Solitude: The Premier Open-Source Endpoint Isolation and System Hardening Solution for Wazuh v4.7.4</strong>
+</h1>
 
 **Overview:**
 Solitude is a comprehensive collection of shell scripts designed to manage and enhance isolation settings, particularly for macOS and Linux environments. These scripts provide users with the ability to regulate firewall settings and bolster system security measures.
 
 **Features:**
+
 - **Cross-Platform Compatibility:** Equipped to function seamlessly on both macOS and Linux systems, ensuring versatility in usage.
 - **Isolation Management:** Facilitates the configuration and management of isolation settings, enabling users to tailor their system's security according to specific requirements.
 - **Enhanced Firewall Control:** Empowers users to regulate firewall settings effectively, enhancing system protection against potential threats.
 - **User-Friendly Interface:** Designed with simplicity and ease of use in mind, allowing users to navigate and utilize the scripts efficiently.
 
 **Usage:**
+
 1. **Installation:** Simply download the repository and execute the desired script based on your system requirements.
 2. **Configuration:** Customize isolation settings and firewall rules as per your preferences using the provided scripts.
 3. **Execution:** Run the scripts to implement the configured settings and bolster your system's security measures.
