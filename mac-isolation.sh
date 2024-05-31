@@ -6,57 +6,6 @@ ISOLATED_PF_CONF="/etc/pf.conf.isolated"
 LAUNCHDAEMONS_FILE="/Library/LaunchDaemons/com.user.pfisolation.plist"
 OSSEC_CONF="/Library/Ossec/etc/ossec.conf"
 
-# Ensure the script is run as root
-if [ "$(id -u)" -ne 0 ]; then
-    echo "This script must be run as root."
-    exit 1
-fi
-
-# Function to read IP address and port from file
-read_ip_and_port_from_file() {
-    local file_path="$1"
-    local ip
-    local port
-
-    # Read IP address and port from the file
-    while IFS= read -r line; do
-        if [[ $line =~ "<address>" ]]; then
-            ip=$(echo "$line" | sed -e 's/.*<address>\(.*\)<\/address>.*/\1/' | tr -d '[:space:]')
-        elif [[ $line =~ "<port>" ]]; then
-            port=$(echo "$line" | sed -e 's/.*<port>\(.*\)<\/port>.*/\1/' | tr -d '[:space:]')
-        elif [[ $line =~ "</server>" ]]; then
-            # If both address and port are found, break
-            if [[ -n $ip && -n $port ]]; then
-                break
-            fi
-        fi
-    done < "$file_path"
-
-    echo "$ip $port"
-}
-
-# Function to apply PF rules and make them persistent
-apply_and_persist_pf_rules() {
-    local ip="$1"
-    local port="$2"
-
-    # Define PF rules to allow connections only for the specified IP address and ports
-    rules_content="block all
-    pass in inet proto tcp from $ip to any port { $port, 1515 }
-    pass in inet proto udp from $ip to any port { $port }
-    pass out inet proto tcp from any to $ip port { $port, 1515 }
-    pass out inet proto udp from any to $ip port { $port }"
-
-    # Create the pf rules file for isolation
-    echo "$rules_content" > "$ISOLATED_PF_CONF"
-
-    # Load the isolation rules
-    pfctl -f "$ISOLATED_PF_CONF"
-
-    # Enable PF
-    pfctl -e
-}
-
 # Function to update label based on isolation or unisolation
 update_label() {
     local file_path="$1"
@@ -113,6 +62,65 @@ update_label() {
     echo "File updated with $action status at path: $file_path"
 }
 
+# Ensure the script is run as root
+if [ "$(id -u)" -ne 0 ]; then
+    echo "This script must be run as root."
+    exit 1
+fi
+
+# Function to read IP address and port from file
+read_ip_and_port_from_file() {
+    local file_path="$1"
+    local ip
+    local port
+
+    # Read IP address and port from the file
+    while IFS= read -r line; do
+        if [[ $line =~ "<address>" ]]; then
+            ip=$(echo "$line" | sed -e 's/.*<address>\(.*\)<\/address>.*/\1/' | tr -d '[:space:]')
+        elif [[ $line =~ "<port>" ]]; then
+            port=$(echo "$line" | sed -e 's/.*<port>\(.*\)<\/port>.*/\1/' | tr -d '[:space:]')
+        elif [[ $line =~ "</server>" ]]; then
+            # If both address and port are found, break
+            if [[ -n $ip && -n $port ]]; then
+                break
+            fi
+        fi
+    done < "$file_path"
+
+    echo "$ip $port"
+}
+
+# Function to apply PF rules and make them persistent
+apply_and_persist_pf_rules() {
+    local ip="$1"
+    local port="$2"
+
+    # Define PF rules to allow connections only for the specified IP address and ports
+    rules_content="block all
+    pass in inet proto tcp from $ip to any port { $port, 1515 }
+    pass in inet proto udp from $ip to any port { $port }
+    pass out inet proto tcp from any to $ip port { $port, 1515 }
+    pass out inet proto udp from any to $ip port { $port }"
+
+    # Create the pf rules file for isolation
+    echo "$rules_content" > "$ISOLATED_PF_CONF"
+
+    # Load the isolation rules
+    pfctl -f "$ISOLATED_PF_CONF"
+
+    # Enable PF
+    pfctl -e
+}
+
+# Function to restart Wazuh Agent
+restart_wazuh_agent() {
+    # Unload and load the Wazuh agent using launchctl
+    launchctl unload /Library/LaunchDaemons/com.wazuh.agent.plist
+    sleep 5
+    launchctl load /Library/LaunchDaemons/com.wazuh.agent.plist
+}
+
 # Function to log messages
 log_message() {
     local message="$1"
@@ -132,11 +140,14 @@ main() {
     # Apply PF rules and make them persistent
     apply_and_persist_pf_rules "$ip" "$port"
     
+    # Update ossec.conf with the current action
+    update_label "$OSSEC_CONF" "isolate"
+    
     # Log unisolation event
     log_message "active-response/bin/isolation.sh: Endpoint Isolated."
     
-    # Update ossec.conf with the current action
-    update_label "$OSSEC_CONF" "isolate"
+    # Restarting Wazuh Agent
+    restart_wazuh_agent
 }
 
 # Call the main function
@@ -164,6 +175,3 @@ EOF
 
 # Load the Launch Daemon
 launchctl load "$LAUNCHDAEMONS_FILE"
-
-# Restarting Wazuh Agent
-/Library/Ossec/bin/wazuh-control restart
