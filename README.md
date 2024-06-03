@@ -1,6 +1,6 @@
 <h1 align="center">
 <br>
-<img src=assets/techanv-security.gif height="400" >
+<img src=assets/techanv-security.gif >
 <br>
 <strong>Solitude: A Script Collection for Wazuh v4.7.4</strong>
 </h1>
