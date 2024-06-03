@@ -6,6 +6,62 @@ ISOLATED_PF_CONF="/etc/pf.conf.isolated"
 LAUNCHDAEMONS_FILE="/Library/LaunchDaemons/com.user.pfisolation.plist"
 OSSEC_CONF="/Library/Ossec/etc/ossec.conf"
 
+# Function to update label based on isolation or unisolation
+update_label() {
+    local file_path="$1"
+    local action="$2"  # "isolate" or "unisolate"
+    local label_value=$( [ "$action" = "isolate" ] && echo "isolated" || echo "normal" )
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Backup the original file before modifications
+    cp "$file_path" "$file_path.bak"
+
+    # Process the file to correctly update or insert the isolation labels before </ossec_config>
+    awk -v label_value="$label_value" -v timestamp="$timestamp" '
+    BEGIN { printing = 1; labels_printed = 0; }
+    /<\/ossec_config>/ {
+        if (!labels_printed) {
+            print "  <!-- Isolation timestamp -->";
+            print "  <labels>";
+            print "    <label key=\"isolation_state\">" label_value "</label>";
+            print "    <label key=\"isolation_time\">" timestamp "</label>";
+            print "  </labels>";
+            labels_printed = 1;
+        }
+        print "</ossec_config>";
+        printing = 0;
+        next;
+    }
+    /<!-- Isolation timestamp -->/,/<\/labels>/ {
+        if (/<!-- Isolation timestamp -->/) {
+            print;  # Print the comment marking the start of the isolation info
+            next;
+        }
+        if (/<labels>/) {
+            print;
+            next;
+        }
+        if (/<\/labels>/) {
+            if (!labels_printed) {
+                print "    <label key=\"isolation_state\">" label_value "</label>";
+                print "    <label key=\"isolation_time\">" timestamp "</label>";
+                labels_printed = 1;
+            }
+            print;
+            next;
+        }
+        if ($0 ~ /<label key="isolation_state">|<label key="isolation_time">/) {
+            next; # Skip existing isolation labels
+        }
+        print; # Print all other labels unconditionally
+        next;
+    }
+    printing { print }
+    ' "$file_path.bak" > "$file_path"
+
+    echo "File updated with $action status at path: $file_path"
+}
+
 # Ensure the script is run as root
 if [ "$(id -u)" -ne 0 ]; then
     echo "This script must be run as root."
@@ -57,66 +113,18 @@ apply_and_persist_pf_rules() {
     pfctl -e
 }
 
-# Function to update label based on isolation or unisolation
-update_label() {
-    local file_path="$1"
-    local action="$2"  # "isolate" or "unisolate"
-    local label_value=$( [ "$action" = "isolate" ] && echo "isolated" || echo "normal" )
-    local timestamp="$(date +"%Y-%m-%d %H:%M:%S")"
-
-    # Backup the original file before modifications
-    cp "$file_path" "$file_path.bak"
-
-    # Process the file to correctly update or insert the isolation labels before </ossec_config>
-    awk -v label_value="$label_value" -v timestamp="$timestamp" '
-    BEGIN { printing = 1; labels_printed = 0; }
-    /<\/ossec_config>/ {
-        if (!labels_printed) {
-            print "  <!-- Isolation timestamp -->";
-            print "  <labels>";
-            print "    <label key=\"isolation_state\">" label_value "</label>";
-            print "    <label key=\"isolation_time\">" timestamp "</label>";
-            print "  </labels>";
-            labels_printed = 1;
-        }
-        print "</ossec_config>";
-        printing = 0;
-        next;
-    }
-    /<!-- Isolation timestamp -->/,/<\/labels>/ {
-        if (/<!-- Isolation timestamp -->/) {
-            print;  # Print the comment marking the start of the isolation info
-            next;
-        }
-        if (/<labels>/) {
-            print;
-            next;
-        }
-        if (/<\/labels>/) {
-            if (!labels_printed) {
-                print "    <label key=\"isolation_state\">" label_value "</label>";
-                print "    <label key=\"isolation_time\">" timestamp "</label>";
-                labels_printed = 1;
-            }
-            print;
-            next;
-        }
-        if ($0 ~ /<label key="isolation_state">|<label key="isolation_time">/) {
-            next; # Skip existing isolation labels
-        }
-        print; # Print all other labels unconditionally
-        next;
-    }
-    printing { print }
-    ' "$file_path.bak" > "$file_path"
-
-    echo "File updated with $action status at path: $file_path"
+# Function to restart Wazuh Agent
+restart_wazuh_agent() {
+    # Unload and load the Wazuh agent using launchctl
+    launchctl unload /Library/LaunchDaemons/com.wazuh.agent.plist
+    sleep 5
+    launchctl load /Library/LaunchDaemons/com.wazuh.agent.plist
 }
 
 # Function to log messages
 log_message() {
     local message="$1"
-    local timestamp=$(date +"%a %b %d %T %Z %Y")
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     local log_entry="$timestamp $message"
     echo "$log_entry" | tee -a "$LOG_FILE" > /dev/null
 }
@@ -132,11 +140,14 @@ main() {
     # Apply PF rules and make them persistent
     apply_and_persist_pf_rules "$ip" "$port"
     
+    # Update ossec.conf with the current action
+    update_label "$OSSEC_CONF" "isolate"
+    
     # Log unisolation event
     log_message "active-response/bin/isolation.sh: Endpoint Isolated."
     
-    # Update ossec.conf with the current action
-    update_label "$OSSEC_CONF" "isolate"
+    # Restarting Wazuh Agent
+    restart_wazuh_agent
 }
 
 # Call the main function
@@ -164,6 +175,3 @@ EOF
 
 # Load the Launch Daemon
 launchctl load "$LAUNCHDAEMONS_FILE"
-
-# Restarting Wazuh Agent
-/Library/Ossec/bin/wazuh-control restart

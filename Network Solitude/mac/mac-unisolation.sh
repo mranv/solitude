@@ -17,7 +17,7 @@ update_label() {
     local file_path="$1"
     local action="$2"  # "isolate" or "unisolate"
     local label_value=$( [ "$action" = "isolate" ] && echo "isolated" || echo "normal" )
-    # local timestamp="$(date +"%Y-%m-%d %H:%M:%S")"
+    # local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     # Backup the original file before modifications
     cp "$file_path" "$file_path.bak"
@@ -71,26 +71,40 @@ update_label() {
 # Function to log messages
 log_message() {
     local message="$1"
-    local timestamp=$(date +"%a %b %d %T %Z %Y")
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     local log_entry="$timestamp $message"
     echo "$log_entry" >> "$LOG_FILE"
 }
 
-# Disable PF
-sudo pfctl -d
+# Function to restart Wazuh Agent
+restart_wazuh_agent() {
+    # Unload and load the Wazuh agent using launchctl
+    launchctl unload /Library/LaunchDaemons/com.wazuh.agent.plist
+    sleep 5
+    launchctl load /Library/LaunchDaemons/com.wazuh.agent.plist
+}
 
-# Restore default PF rules (assuming default is less restrictive)
-sudo pfctl -f /etc/pf.conf
+# Main unisolation process
+main() {
+    # Disable PF
+    sudo pfctl -d
 
-# Unload and remove the Launch Agent
-sudo launchctl unload "$LAUNCHDAEMONS_FILE"
-sudo rm "$LAUNCHDAEMONS_FILE"
+    # Restore default PF rules (assuming default is less restrictive)
+    sudo pfctl -f /etc/pf.conf
 
-# Log unisolation event
-log_message "active-response/bin/unisolation.sh: Endpoint Unisolated."
+    # Unload and remove the Launch Agent
+    sudo launchctl unload "$LAUNCHDAEMONS_FILE"
+    sudo rm "$LAUNCHDAEMONS_FILE"
 
-# Update ossec.conf with the current action
-update_label "$OSSEC_CONF" "unisolate"
+    # Update ossec.conf with the current action
+    update_label "$OSSEC_CONF" "unisolate"
 
-# Restarting Wazuh Agent
-/Library/Ossec/bin/wazuh-control restart
+    # Log unisolation event
+    log_message "active-response/bin/unisolation.sh: Endpoint Unisolated."
+
+    # Restarting Wazuh Agent
+    restart_wazuh_agent
+}
+
+# Call the unisolate function
+main
