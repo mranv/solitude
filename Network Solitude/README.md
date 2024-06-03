@@ -1,6 +1,6 @@
 <h1 align="center">
 <br>
-<img src=../assets/web-shell-circle.png height="400" >
+<img src=../assets/network-devices-circle.png height="400" >
 <br>
 <strong>Solitude: The Premier Open-Source Endpoint Isolation and System Hardening Solution for Wazuh v4.7.4</strong>
 </h1>
