@@ -2,12 +2,12 @@
 <br>
 <img src=../assets/disk-encryption.png height="400" >
 <br>
-<strong>Domain Isolation: A Script Collection for Disk Encryption and Decryption</strong>
+<strong>Disk Solitude: A Script Collection for Disk Encryption and Decryption</strong>
 </h1>
 
 ## Overview
 
-Domain Isolation comprises a set of shell scripts designed to manage disk encryption and decryption, along with logging functionalities, primarily for Linux systems. These scripts enable users to control disk encryption status and maintain detailed system logs for enhanced security.
+Disk Solitude comprises a set of shell scripts designed to manage disk encryption and decryption, along with logging functionalities, primarily for Linux systems. These scripts enable users to control disk encryption status and maintain detailed system logs for enhanced security.
 
 ## Features
 
@@ -22,13 +22,29 @@ Domain Isolation comprises a set of shell scripts designed to manage disk encryp
 2. **Configuration:** Customize disk encryption and logging settings within the scripts according to your preferences.
 3. **Execution:** Run the scripts to implement the configured settings and manage disk encryption and logging on your system.
 
+### Encrypting a Disk
+
+To encrypt a disk, use the `encryptdisk.sh` script. Ensure you replace the placeholder disk identifier (`/dev/sdX`) with the actual disk you intend to encrypt.
+
+```bash
+./encryptdisk.sh
+```
+
+### Decrypting a Disk
+
+To decrypt a disk, use the `decryptdisk.sh` script. Ensure you replace the placeholder disk identifier (`/dev/sdX`) with the actual disk you intend to decrypt.
+
+```bash
+./decryptdisk.sh
+```
+
 ## Contribution
 
-Contributions and feedback are welcome to enhance the functionality and reliability of Domain Isolation. Users are encouraged to submit pull requests or report issues for improvements or bug fixes.
+Contributions and feedback are welcome to enhance the functionality and reliability of Disk Solitude. Users are encouraged to submit pull requests or report issues for improvements or bug fixes.
 
 ## Disclaimer
 
-Domain Isolation is provided as-is, without warranty or guarantee of performance. Users should review and understand the scripts before execution and use them responsibly.
+Disk Solitude is provided as-is, without warranty or guarantee of performance. Users should review and understand the scripts before execution and use them responsibly.
 
 ## Stay Connected
 
