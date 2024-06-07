@@ -1,11 +1,18 @@
-
 #!/bin/bash
 
+# Variables
 LOG_FILE="/var/ossec/logs/active-responses.log"
 SYSTEMD_SERVICE_FILE="/etc/systemd/system/iptables-restore.service"
 RULES_FILE="/etc/iptables/rules.v4"
+OSSEC_CONF="/var/ossec/etc/ossec.conf"
 
-# Function to remove /etc/iptables/rules.v4 if present, otherwise create an empty file
+# Ensure the script is run as root
+if [ "$(id -u)" -ne 0 ]; then
+    echo "This script must be run as root."
+    exit 1
+fi
+
+# Function to remove or create rules file
 remove_or_create_rules_file() {
     if [ -f "$RULES_FILE" ]; then
         rm "$RULES_FILE"
@@ -14,61 +21,63 @@ remove_or_create_rules_file() {
     fi
 }
 
-# Function to read IP address and port from the file
-read_ip_and_port_from_file() {
+# Function to update label based on isolation or unisolation
+update_label() {
     local file_path="$1"
-    local ip
-    local port
+    local action="$2"  # "isolate" or "unisolate"
+    local label_value=$( [ "$action" = "isolate" ] && echo "isolated" || echo "normal" )
 
-    # Read IP address and port from the file
-    while IFS= read -r line; do
-        if [[ $line =~ "<address>" ]]; then
-            ip=$(echo "$line" | sed -e 's/.*<address>\(.*\)<\/address>.*/\1/')
-        elif [[ $line =~ "<port>" ]]; then
-            port=$(echo "$line" | sed -e 's/.*<port>\(.*\)<\/port>.*/\1/')
-        elif [[ $line =~ "</server>" ]]; then
-            # If both address and port are found, break
-            if [[ -n $ip && -n $port ]]; then
-                break
-            fi
-        fi
-    done < "$file_path"
+    # Backup the original file before modifications
+    cp "$file_path" "$file_path.bak"
 
-    echo "$ip" "$port"
+    # Process the file to correctly update or insert the isolation labels before </ossec_config>
+    awk -v label_value="$label_value" '
+    BEGIN { printing = 1; labels_printed = 0; }
+    /<\/ossec_config>/ {
+        if (!labels_printed) {
+            print "  <!-- Isolation timestamp -->";
+            print "  <labels>";
+            print "    <label key=\"isolation_state\">" label_value "</label>";
+            print "  </labels>";
+            labels_printed = 1;
+        }
+        print "</ossec_config>";
+        printing = 0;
+        next;
+    }
+    /<!-- Isolation timestamp -->/,/<\/labels>/ {
+        if (/<!-- Isolation timestamp -->/) {
+            print;  # Print the comment marking the start of the isolation info
+            next;
+        }
+        if (/<labels>/) {
+            print;
+            next;
+        }
+        if (/<\/labels>/) {
+            if (!labels_printed) {
+                print "    <label key=\"isolation_state\">" label_value "</label>";
+                labels_printed = 1;
+            }
+            print;
+            next;
+        }
+        if ($0 ~ /<label key="isolation_state">|<label key="isolation_time">/) {
+            next; # Skip existing isolation labels
+        }
+        print; # Print all other labels unconditionally
+        next;
+    }
+    printing { print }
+    ' "$file_path.bak" > "$file_path"
+
+    echo "File updated with $action status at path: $file_path"
 }
-
-# Function to update configuration file with timestamp
-update_config_file_with_timestamp() {
-    local file_path=$1
-    local timestamp=$2
-
-    # Find the position to insert the label
-    local insertion_point=$(grep -b -m 1 "</ossec_config>" "$file_path" | cut -d ':' -f 1)
-
-    if [ -z "$insertion_point" ]; then
-        echo "Error: Failed to find insertion point in $file_path"
-        return 1
-    fi
-
-    # Insert the label with the timestamp
-    sed -i "${insertion_point}i\\
-    <labels>\\
-      <label key=\"unisolated.time\">${timestamp}</label>\\
-    </labels>" "$file_path"
-
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to insert timestamp label into $file_path"
-        return 1
-    fi
-
-    return 0
-}
-
 
 # Function to log messages
 log_message() {
     local message="$1"
-    local timestamp=$(date +"%a %b %d %T %Z %Y")
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     local log_entry="$timestamp $message"
     echo "$log_entry" >> "$LOG_FILE"
 }
@@ -82,21 +91,16 @@ remove_systemd_service() {
     fi
 }
 
+# Function to restart Wazuh Agent
+restart_wazuh_agent() {
+    systemctl restart wazuh-agent
+    echo "Wazuh agent restarted."
+}
+
 # Main function
 main() {
-    # Remove or create /etc/iptables/rules.v4
+    # Remove or create rules file
     remove_or_create_rules_file
-
-    # Read IP address and port from the file
-    read_ip_and_port_from_file "/var/ossec/etc/ossec.conf"
-    local ip="$1"
-    local port="$2"
-
-    # Get the current time as timestamp
-    local current_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-    # Update the configuration file with the timestamp
-    update_config_file_with_timestamp "/var/ossec/etc/ossec.conf" "$current_time"
 
     # Flush existing iptables rules to start fresh
     iptables -F
@@ -108,14 +112,18 @@ main() {
     iptables -P OUTPUT ACCEPT
     iptables -P FORWARD ACCEPT
 
-    # Log message and print configure iptables message
-    local configure_iptables_msg="active-response/bin/unisolation.sh: Endpoint unisolated."
-    log_message "$configure_iptables_msg"
-    echo "$configure_iptables_msg"
-
     # Remove systemd service
     remove_systemd_service
+
+    # Update ossec.conf with the current action
+    update_label "$OSSEC_CONF" "unisolate"
+
+    # Log unisolation event
+    log_message "active-response/bin/unisolation.sh: Endpoint Unisolated."
+
+    # Restart Wazuh Agent
+    restart_wazuh_agent
 }
 
 # Execute the main function
-main "$@"
+main

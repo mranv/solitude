@@ -1,11 +1,10 @@
-
 #!/bin/bash
 
 # Variables
 LOG_FILE="/var/ossec/logs/active-responses.log"
 IPTABLES_RULES_FILE="/etc/iptables/rules.v4"
-RESTORE_SCRIPT="/etc/iptables/restore.sh"
 SYSTEMD_SERVICE_FILE="/etc/systemd/system/iptables-restore.service"
+OSSEC_CONF="/var/ossec/etc/ossec.conf"
 
 # Ensure the script is run as root
 if [ "$(id -u)" -ne 0 ]; then
@@ -13,25 +12,77 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-# Install iptables-persistent to manage rules (optional based on your preference)
- apt-get update
- apt-get install iptables-persistent -y
-
 # Create iptables directory if not exists
 mkdir -p /etc/iptables
 
+# Function to update label based on isolation or unisolation
+update_label() {
+    local file_path="$1"
+    local action="$2"  # "isolate" or "unisolate"
+    local label_value=$( [ "$action" = "isolate" ] && echo "isolated" || echo "normal" )
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Backup the original file before modifications
+    cp "$file_path" "$file_path.bak"
+
+    # Process the file to correctly update or insert the isolation labels before </ossec_config>
+    awk -v label_value="$label_value" -v timestamp="$timestamp" '
+    BEGIN { printing = 1; labels_printed = 0; }
+    /<\/ossec_config>/ {
+        if (!labels_printed) {
+            print "  <!-- Isolation timestamp -->";
+            print "  <labels>";
+            print "    <label key=\"isolation_state\">" label_value "</label>";
+            print "    <label key=\"isolation_time\">" timestamp "</label>";
+            print "  </labels>";
+            labels_printed = 1;
+        }
+        print "</ossec_config>";
+        printing = 0;
+        next;
+    }
+    /<!-- Isolation timestamp -->/,/<\/labels>/ {
+        if (/<!-- Isolation timestamp -->/) {
+            print;  # Print the comment marking the start of the isolation info
+            next;
+        }
+        if (/<labels>/) {
+            print;
+            next;
+        }
+        if (/<\/labels>/) {
+            if (!labels_printed) {
+                print "    <label key=\"isolation_state\">" label_value "</label>";
+                print "    <label key=\"isolation_time\">" timestamp "</label>";
+                labels_printed = 1;
+            }
+            print;
+            next;
+        }
+        if ($0 ~ /<label key="isolation_state">|<label key="isolation_time">/) {
+            next; # Skip existing isolation labels
+        }
+        print; # Print all other labels unconditionally
+        next;
+    }
+    printing { print }
+    ' "$file_path.bak" > "$file_path"
+
+    echo "File updated with $action status at path: $file_path"
+}
+
 # Function to read IP address and port from the file
 read_ip_and_port_from_file() {
-    local file_path=$1
+    local file_path="$1"
     local ip
     local port
 
     # Read IP address and port from the file
     while IFS= read -r line; do
         if [[ $line =~ "<address>" ]]; then
-            ip=$(echo "$line" | sed -e 's/.*<address>\(.*\)<\/address>.*/\1/')
+            ip=$(echo "$line" | sed -e 's/.*<address>\(.*\)<\/address>.*/\1/' | tr -d '[:space:]')
         elif [[ $line =~ "<port>" ]]; then
-            port=$(echo "$line" | sed -e 's/.*<port>\(.*\)<\/port>.*/\1/')
+            port=$(echo "$line" | sed -e 's/.*<port>\(.*\)<\/port>.*/\1/' | tr -d '[:space:]')
         elif [[ $line =~ "</server>" ]]; then
             # If both address and port are found, break
             if [[ -n $ip && -n $port ]]; then
@@ -40,47 +91,22 @@ read_ip_and_port_from_file() {
         fi
     done < "$file_path"
 
-    echo "$ip" "$port"
+    echo "$ip $port"
 }
-
-# Function to update configuration file with timestamp
-update_config_file_with_timestamp() {
-    local file_path=$1
-    local timestamp=$2
-
-    # Find the position to insert the label
-    local insertion_point=$(grep -b -m 1 "</ossec_config>" "$file_path" | cut -d ':' -f 1)
-
-    if [ -z "$insertion_point" ]; then
-        echo "Error: Failed to find insertion point in $file_path"
-        return 1
-    fi
-
-    # Insert the label with the timestamp
-    sed -i "${insertion_point}i\\
-    <labels>\\
-      <label key=\"isolated.time\">${timestamp}</label>\\
-    </labels>" "$file_path"
-
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to insert timestamp label into $file_path"
-        return 1
-    fi
-
-    return 0
-}
-
 
 # Function to log messages
 log_message() {
     local message="$1"
-    local timestamp=$(date +"%a %b %d %T %Z %Y")
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     local log_entry="$timestamp $message"
-    echo "$log_entry" >> "$LOG_FILE"
+    echo "$log_entry" | tee -a "$LOG_FILE" > /dev/null
 }
 
 # Function to apply iptables rules and save them
 apply_and_save_iptables_rules() {
+    local ip="$1"
+    local port="$2"
+
     # Flush existing iptables rules to start fresh
     iptables -F
     iptables -X
@@ -94,86 +120,83 @@ apply_and_save_iptables_rules() {
     # Allow established and related incoming connections
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-    # Allow outgoing connections to the specified IP address and port
-    iptables -A OUTPUT -p tcp -d "$ip" --dport "$port" -j ACCEPT
+    # Allow incoming connections from the specified IP address to port 1515 and specified port
+    iptables -A INPUT -p tcp -s "$ip" --dport 1515 -j ACCEPT
+    iptables -A INPUT -p udp -s "$ip" --dport 1515 -j ACCEPT
+    iptables -A INPUT -p tcp -s "$ip" --dport "$port" -j ACCEPT
+    iptables -A INPUT -p udp -s "$ip" --dport "$port" -j ACCEPT
 
-    # Allow loopback access
+    # Allow outgoing connections to the specified IP address and ports
+    iptables -A OUTPUT -p tcp -d "$ip" --dport 1515 -j ACCEPT
+    iptables -A OUTPUT -p udp -d "$ip" --dport 1515 -j ACCEPT
+    iptables -A OUTPUT -p tcp -d "$ip" --dport "$port" -j ACCEPT
+    iptables -A OUTPUT -p udp -d "$ip" --dport "$port" -j ACCEPT
+
+    # Allow loopback access (necessary for local process communication)
     iptables -A INPUT -i lo -j ACCEPT
     iptables -A OUTPUT -o lo -j ACCEPT
-
-    # Log iptables denied calls (optional)
-    iptables -A INPUT -m limit --limit 5/min -j LOG --log-prefix "iptables INPUT denied: " --log-level 7
-    iptables -A OUTPUT -m limit --limit 5/min -j LOG --log-prefix "iptables OUTPUT denied: " --log-level 7
 
     # Save iptables rules to persist after reboot
     iptables-save > "$IPTABLES_RULES_FILE"
 }
 
-# Main function
-main() {
-    # Read IP address and port from the file
-    local ip port
-    read_ip_and_port_from_file "/var/ossec/etc/ossec.conf"
-    ip="$1"
-    port="$2"
-
-    # Get the current time as timestamp
-    local current_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-    # Update the configuration file with the timestamp
-    update_config_file_with_timestamp "/var/ossec/etc/ossec.conf" "$current_time"
-
-    # Apply iptables rules and save them
-    apply_and_save_iptables_rules
-
-    log_message "active-response/bin/isolation.sh: Endpoint Isolated."
-}
-
-# Function to set and save iptables rules
-setup_iptables() {
-    # Define isolation rules here
-    iptables -F
-    iptables -P INPUT DROP
-    iptables -P OUTPUT DROP
-    iptables -P FORWARD DROP
-    iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    iptables -A OUTPUT -p tcp -d "$ip" --dport "$port" -j ACCEPT
-    iptables -A INPUT -i lo -j ACCEPT
-    iptables -A OUTPUT -o lo -j ACCEPT
-
-    # Save the rules
-    iptables-save > "$IPTABLES_RULES_FILE"
-}
-
 # Function to create iptables restore script
 create_restore_script() {
-    echo '#!/bin/sh' > "$RESTORE_SCRIPT"
-    echo "/sbin/iptables-restore < $IPTABLES_RULES_FILE" >> "$RESTORE_SCRIPT"
-    chmod +x "$RESTORE_SCRIPT"
+    local restore_script="/etc/iptables/restore.sh"
+    echo '#!/bin/sh' > "$restore_script"
+    echo "/sbin/iptables-restore < $IPTABLES_RULES_FILE" >> "$restore_script"
+    chmod +x "$restore_script"
 }
 
 # Function to setup systemd service for iptables
 setup_systemd_service() {
-    echo '[Unit]' > "$SYSTEMD_SERVICE_FILE"
-    echo 'Description=Restore iptables rules on boot' >> "$SYSTEMD_SERVICE_FILE"
-    echo 'After=network.target' >> "$SYSTEMD_SERVICE_FILE"
-    echo '' >> "$SYSTEMD_SERVICE_FILE"
-    echo '[Service]' >> "$SYSTEMD_SERVICE_FILE"
-    echo 'Type=oneshot' >> "$SYSTEMD_SERVICE_FILE"
-    echo "ExecStart=$RESTORE_SCRIPT" >> "$SYSTEMD_SERVICE_FILE"
-    echo 'RemainAfterExit=yes' >> "$SYSTEMD_SERVICE_FILE"
-    echo '' >> "$SYSTEMD_SERVICE_FILE"
-    echo '[Install]' >> "$SYSTEMD_SERVICE_FILE"
-    echo 'WantedBy=multi-user.target' >> "$SYSTEMD_SERVICE_FILE"
+    local systemd_service_file="/etc/systemd/system/iptables-restore.service"
+    echo '[Unit]' > "$systemd_service_file"
+    echo 'Description=Restore iptables rules on boot' >> "$systemd_service_file"
+    echo 'After=network.target' >> "$systemd_service_file"
+    echo '' >> "$systemd_service_file"
+    echo '[Service]' >> "$systemd_service_file"
+    echo 'Type=oneshot' >> "$systemd_service_file"
+    echo "ExecStart=/etc/iptables/restore.sh" >> "$systemd_service_file"
+    echo 'RemainAfterExit=yes' >> "$systemd_service_file"
+    echo '' >> "$systemd_service_file"
+    echo '[Install]' >> "$systemd_service_file"
+    echo 'WantedBy=multi-user.target' >> "$systemd_service_file"
 
     systemctl enable iptables-restore.service
     systemctl start iptables-restore.service
 }
 
-# Main execution flow
-main "$@"
-setup_iptables
-create_restore_script
-setup_systemd_service
+# Function to restart Wazuh Agent
+restart_wazuh_agent() {
+    systemctl restart wazuh-agent
+    echo "Wazuh agent restarted."
+}
 
-echo "Iptables isolation setup and systemd service have been configured."
+# Main function
+main() {
+    # Read IP address and port from the file
+    local ip_port
+    ip_port=$(read_ip_and_port_from_file "$OSSEC_CONF")
+    local ip=$(echo "$ip_port" | cut -d' ' -f1)
+    local port=$(echo "$ip_port" | cut -d' ' -f2)
+
+    # Apply iptables rules and save them
+    apply_and_save_iptables_rules "$ip" "$port"
+    
+    # Update ossec.conf with the current action
+    update_label "$OSSEC_CONF" "isolate"
+    
+    # Log isolation event
+    log_message "active-response/bin/isolation.sh: Endpoint Isolated."
+    
+    # Create iptables restore script and systemd service
+    create_restore_script
+    setup_systemd_service
+
+    # Restart Wazuh Agent
+    restart_wazuh_agent
+}
+
+# Execute the main function
+main
