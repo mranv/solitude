@@ -1,3 +1,6 @@
+# Set the execution policy to RemoteSigned
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Force
+
 # Define the allowed IP and ports
 $allowedIP = "192.168.1.100"  # Replace with the desired IP address
 $allowedPort1 = 1515
