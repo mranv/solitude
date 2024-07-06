@@ -1,5 +1,16 @@
-# Set the execution policy to RemoteSigned
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Force
+# Function to check if the script is run as administrator
+function Test-Administrator {
+    $currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+    return $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+if (-not (Test-Administrator)) {
+    Write-Host "This script needs to be run as an administrator. Please run PowerShell as an administrator and try again."
+    exit
+}
+
+# Set the execution policy for the current user
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
 
 # Define the allowed IP and ports
 $allowedIP = "192.168.1.100"  # Replace with the desired IP address
