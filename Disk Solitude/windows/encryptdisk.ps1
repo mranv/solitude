@@ -12,11 +12,21 @@ if (-not (Test-Administrator)) {
 # Set the execution policy for the current user
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
 
+function ConvertTo-SecureStringFromPlainText {
+    param (
+        [string]$PlainText
+    )
+    $secureString = New-Object System.Security.SecureString
+    $PlainText.ToCharArray() | ForEach-Object { $secureString.AppendChar($_) }
+    return $secureString
+}
+
 function Encrypt-AllDisks {
     param (
         [string]$Password
     )
 
+    $securePassword = ConvertTo-SecureStringFromPlainText -PlainText $Password
     $disks = Get-PhysicalDisk | Where-Object { $_.MediaType -eq 'HDD' -or $_.MediaType -eq 'SSD' }
     
     foreach ($disk in $disks) {
@@ -24,7 +34,7 @@ function Encrypt-AllDisks {
         foreach ($partition in $partitions) {
             if ($partition.Type -eq 'Basic') {
                 Write-Host "Encrypting partition $($partition.PartitionNumber) on disk $($disk.DeviceID)"
-                Enable-BitLocker -MountPoint $partition.AccessPaths[0] -Password $Password -PasswordProtector
+                Enable-BitLocker -MountPoint $partition.AccessPaths[0] -Password $securePassword -PasswordProtector
             }
         }
     }
